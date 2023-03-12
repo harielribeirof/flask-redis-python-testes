@@ -1,19 +1,7 @@
-# from flask import Flask
-# from flask_restx import Resource, Api
-
-# app = Flask(__name__)
-# api = Api(app)
-
-# @api.route('/hello')
-# class HelloWorld(Resource):
-#     def get(self):
-#         return {'hello': 'world'}
-
-# if __name__ == '__main__':
-#     app.run(debug=True)
-
-from flask import Flask
+from flask import Flask, request
 from flask_restx import Api, Resource, fields
+from apiDao import TodoDAO
+from redisDao import RedisDao
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
@@ -22,92 +10,68 @@ api = Api(app, version='1.0', title='TodoMVC API',
           description='A simple TodoMVC API',
           )
 
-ns = api.namespace('todos', description='TODO operations')
+ns = api.namespace('chavesUsuarios', description='Usuario operations')
 
-user_fields = api.model('User', {
-    'id': fields.Integer,
-    'name': fields.String,
+# user_fields = api.model('User', {
+#     'id': fields.Integer,
+#     'name': fields.String,
+# })
+
+
+chaveUsuario = api.model('Todo', {
+    'chave': fields.String(required=True, description='The task unique identifier'),
+    'email': fields.String(required=True, description='The task details'),
+    'role': fields.String(required=True, description='The task details'),
 })
 
-
-todo = api.model('Todo', {
-    'id': fields.Integer(readonly=True, description='The task unique identifier'),
-    'task': fields.String(required=True, description='The task details'),
-    'message': fields.String(required=True, description='The task details'),
-    'list': fields.List(fields.Nested(user_fields, allow_null=True))
+listaKeys = api.model('ListaKeys',{
+    'lista': fields.List(fields.String)
 })
 
+redisDao = RedisDao()
 
-class TodoDAO(object):
-    def __init__(self):
-        self.counter = 0
-        self.todos = []
-
-    def get(self, id):
-        for todo in self.todos:
-            if todo['id'] == id:
-                return todo
-        api.abort(404, "Todo {} doesn't exist".format(id))
-
-    def create(self, data):
-        todo = data
-        todo['id'] = self.counter = self.counter + 1
-        self.todos.append(todo)
-        return todo
-
-    def update(self, id, data):
-        todo = self.get(id)
-        todo.update(data)
-        return todo
-
-    def delete(self, id):
-        todo = self.get(id)
-        self.todos.remove(todo)
-
-
-DAO = TodoDAO()
-DAO.create({'task': 'Build an API'})
-DAO.create({'task': '?????'})
-DAO.create({'task': 'profit!'})
+DAO = TodoDAO(api)
+DAO.create({'chave': 'f111', 'email': 'teste@teste.com', 'role': 'admin'})
 
 
 @ns.route('/')
 class TodoList(Resource):
     '''Shows a list of all todos, and lets you POST to add new tasks'''
     @ns.doc('list_todos')
-    @ns.marshal_list_with(todo)
+    @ns.marshal_list_with(listaKeys)
     def get(self):
         '''List all tasks'''
-        return DAO.todos
+        return redisDao.listarTodasKeys()
 
     @ns.doc('create_todo')
-    @ns.expect(todo)
-    @ns.marshal_with(todo, code=201)
+    @ns.expect(chaveUsuario)
+    @ns.marshal_with(chaveUsuario, code=201)
     def post(self):
         '''Create a new task'''
-        return DAO.create(api.payload), 201
+        redisDao.inserirKey(api.payload)
+        return api.payload, 201
 
 
-@ns.route('/<int:id>')
+@ns.route('/<string:id>')
 @ns.response(404, 'Todo not found')
 @ns.param('id', 'The task identifier')
 class Todo(Resource):
     '''Show a single todo item and lets you delete them'''
     @ns.doc('get_todo')
-    @ns.marshal_with(todo)
+    @ns.marshal_with(chaveUsuario)
     def get(self, id):
         '''Fetch a given resource'''
-        return DAO.get(id)
+        return redisDao.consultarKey(id)
 
     @ns.doc('delete_todo')
     @ns.response(204, 'Todo deleted')
     def delete(self, id):
         '''Delete a task given its identifier'''
-        DAO.delete(id)
+        redisDao.deletarKey(id)
         return '', 204
 
-    @ns.expect(todo)
-    @ns.marshal_with(todo)
+    @ns.expect(chaveUsuario)
+    @ns.marshal_with(chaveUsuario)
     def put(self, id):
         '''Update a task given its identifier'''
         return DAO.update(id, api.payload)
